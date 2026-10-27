@@ -1,0 +1,10 @@
+# Render.com blueprint: one Docker web service (React build + FastAPI). NOT deployed by the author.
+services:
+  - type: web
+    name: wind-forecast-desk
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATA_MODE
+        value: auto

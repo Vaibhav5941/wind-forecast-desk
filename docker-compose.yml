@@ -1,0 +1,27 @@
+# Local development: API on :8000, Vite dev server on :5173 (proxying /api to the API).
+services:
+  api:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SNAPSHOT_DIR: /data/snapshots
+    ports: ["8000:8000"]
+    volumes:
+      - ./backend:/app
+      - ./data/snapshots:/data/snapshots
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  web:
+    build: ./frontend
+    environment:
+      VITE_PROXY_TARGET: http://api:8000
+    ports: ["5173:5173"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on: [api]
