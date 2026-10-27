@@ -1,127 +1,290 @@
 # Wind Forecast Desk
 
-A small analysis portal for exploring **GB national wind forecasts vs actuals (January 2026)** from Elexon, built for a UK energy trading/procurement team that buys on the day-ahead market. It answers three questions:
+Wind Forecast Desk is a small data analysis app for comparing Great Britain’s national wind generation forecasts with actual generation for January 2026.
 
-1. What wind forecast was available when the purchase decision had to be made?
-2. How far off was it compared with actual wind generation?
-3. Where and when were the errors largest, and what should be checked before relying on it?
+It uses data from Elexon and is intended for a UK energy trading or procurement team that needs to understand what a forecast looked like before a day-ahead purchase decision.
 
-It is an **analysis tool**. It does not optimise procurement and knows nothing about prices or demand.
+The app focuses on three questions:
 
-## Status – read this first
+- What was the latest forecast available at the decision cutoff?
+- How different was that forecast from actual wind generation?
+- Which delivery intervals had the largest errors, and are there any data-quality issues worth investigating?
 
-| Item | State |
+This is an analysis tool only. It does not recommend purchases or model electricity prices or demand.
+
+## Current status
+
+| Area | Status |
 |---|---|
-| Backend + frontend | Built and run locally; screenshot-checked in a browser |
-| Backend tests | 66 passed (pytest) |
-| Frontend tests / lint / build | 6 passed (vitest) · ESLint clean · `vite build` OK |
-| **Live Elexon data** | **NOT verified.** The build environment could not reach `bmrs.elexon.co.uk` (proxy 403) and the docs pages could not be fetched. Endpoint paths, query parameter names and field names follow the author's understanding of the Insights API. **Check them on first live run** (see "First live run"). |
-| Data shown when run offline | **Synthetic fixtures**, clearly labelled in the UI and API. No figures from this repo should be quoted as real Elexon results. |
-| Docker | Config written and `docker compose config` validates. **Images were not built or run** (no Docker daemon in the build environment). |
-| Deployment | **Not deployed.** `render.yaml` and steps below are prepared. No public URL exists. |
-| GitHub | Not pushed. No repository URL exists yet. |
-| Demo video | Not recorded. See `docs/VIDEO_PLAN.md`. |
+| Backend and frontend | Built and tested locally |
+| Backend tests | 66 passed |
+| Frontend tests | 6 passed |
+| Lint and production build | Passed |
+| Live Elexon integration | Not yet verified |
+| Docker image | Configuration checked; image not built or run |
+| Deployment | Not deployed |
+| GitHub repository | Not published |
+| Demo video | Not recorded |
 
-## Quick start
+**Important:** The live Elexon API integration still needs to be checked. The development environment could not reach `bmrs.elexon.co.uk` because of a proxy 403 response. The API endpoints and field names used in the code are based on the author's understanding of the API and should not be treated as confirmed.
+
+When live data cannot be loaded and no snapshot is available, the app falls back to synthetic test data. These results are labelled as non-authoritative in the UI and API. Synthetic figures must not be quoted as real Elexon results.
+
+## Features
+
+- Compare forecast and actual wind generation by delivery interval.
+- Select a forecast using its publication time and a configurable decision cutoff.
+- Review forecast errors, daily summaries and aggregate accuracy metrics.
+- Switch between day-ahead and fixed-lead-time analysis.
+- Inspect forecast vintages to see which forecasts were available at different times.
+- Check coverage, missing values, duplicate records and conflicting duplicates.
+- View missing intervals and identify periods that need further investigation.
+- Use a local snapshot to avoid fetching the same data every time the UI changes.
+
+## Tech stack
+
+- **Frontend:** React, Vite and Vitest
+- **Backend:** Python, FastAPI and pytest
+- **Data handling:** Pandas-style time-series analysis and validation
+- **Data source:** Elexon FUELHH and WINDFOR streams
+- **Deployment setup:** Docker, Docker Compose and a prepared Render Blueprint
+
+## Getting started
+
+### Option 1: Run with Docker
+
+From the project root, copy the example environment file if needed and start the services:
 
 ```bash
-cp .env.example .env            # optional; defaults work
-docker compose up --build       # API :8000, UI :5173
-# open http://localhost:5173
+cp .env.example .env
+docker compose up --build
 ```
 
-With no snapshot and no network access to Elexon, `DATA_MODE=auto` falls back to **synthetic** data and the UI shows a "Not authoritative" banner. To use real data, fetch a snapshot from a machine that can reach Elexon:
+Open the frontend at [http://localhost:5173](http://localhost:5173). The API runs on port `8000`.
+
+Docker has not yet been used to build and run this project in the original development environment, so this setup still needs an end-to-end check.
+
+### Option 2: Run without Docker
+
+Open two terminals from the project root.
+
+**Terminal 1 — Backend**
 
 ```bash
-cd backend && pip install -r requirements.txt
-python -m app.cli fetch         # writes data/snapshots/elexon_wind_2026-01.json.gz
+cd backend
+pip install -r requirements-dev.txt
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Without Docker:
+**Terminal 2 — Frontend**
 
 ```bash
-cd backend && pip install -r requirements-dev.txt && uvicorn app.main:app --reload     # :8000
-cd frontend && npm install && npm run dev                                              # :5173, proxies /api
+cd frontend
+npm install
+npm run dev
 ```
 
-### First live run (what to verify)
-1. `python -m app.cli fetch` – does it return rows? If the API rejects the parameters, adjust `ELEXON_FROM_PARAM` / `ELEXON_TO_PARAM` (e.g. `from`/`to`, or `settlementDateFrom`/`settlementDateTo` for FUELHH) in `.env`.
-2. Open the snapshot and confirm field names (`startTime`, `publishTime`, `generation`, `fuelType`) and that `generation` is MW.
-3. Check how far back WINDFOR vintages go for January delivery days. `FORECAST_LOOKBACK_DAYS` (default 7) controls how early the publish window starts.
-4. Check the data-transparency panel: coverage, nulls, duplicates, conflicting duplicates.
+Open [http://localhost:5173](http://localhost:5173). The Vite development server proxies `/api` requests to the backend.
 
-## Tests
+If you only need to fetch an Elexon snapshot, install the backend requirements and run the CLI command described below.
+
+## Working with the data
+
+### Fetching a snapshot
+
+On a machine that can reach the Elexon API, run:
 
 ```bash
-cd backend && python -m pytest -q      # 66 tests
-cd frontend && npm test                # 6 tests
-cd backend && ruff check . && ruff format --check .
-cd frontend && npm run lint && npm run build
+cd backend
+pip install -r requirements.txt
+python -m app.cli fetch
 ```
 
-Backend tests cover: vintage selection by publish time, exclusion of late forecasts (inclusive cutoff), DST-aware cutoffs, matching by interval, duplicates (exact and conflicting), null/invalid values, metrics on valid matched pairs only, bias sign, empty datasets, parameter validation (422), upstream errors/retries (502/503), synthetic fallback and snapshot handling, and the API responses. Frontend tests cover the non-authoritative banner, sign display, and control switching. There are no browser end-to-end tests in the repo.
+The expected output file is:
 
-## Architecture
-
-```
-React (Vite)  --/api-->  FastAPI  -->  in-memory Dataset  <--  snapshot (.json.gz) <-- Elexon (FUELHH, WINDFOR)
+```text
+data/snapshots/elexon_wind_2026-01.json.gz
 ```
 
-- **FastAPI** over Flask: declared/validated query parameters, automatic `/docs`, simple test client.
-- The dataset is loaded once (snapshot → else live fetch + snapshot → else labelled synthetic) and held in memory, so chart redraws and filter changes never call Elexon.
-- Actuals and forecasts are separate types and are only joined in `analysis.build_rows` on delivery-interval start.
+The live request and response schema have not yet been verified. If the fetch fails, check the endpoint configuration and query parameter names before relying on the returned data.
 
+### First live-data check
+
+Before using the results for analysis, verify the following:
+
+1. Run `python -m app.cli fetch` and confirm that records are returned.
+2. Check the request parameters for the selected Elexon streams. Depending on the endpoint, date parameters may use names such as `from` and `to`, or `settlementDateFrom` and `settlementDateTo`.
+3. Inspect the returned records and confirm the timestamp and generation field names.
+4. Confirm that generation values represent MW and that the timestamps have the expected meaning.
+5. Check how far back the WINDFOR forecast vintages are available for January delivery intervals.
+6. Review the data-quality panel for coverage, null values, duplicates and conflicting records.
+
+The configurable `FORECAST_LOOKBACK_DAYS` setting controls how far before delivery the forecast publication window begins.
+
+## How forecast selection works
+
+For each delivery interval, the app selects the latest forecast whose publication timestamp is at or before the decision cutoff:
+
+`publishTime <= cutoff`
+
+Forecasts published after the cutoff are excluded. If no eligible forecast exists for an interval, that interval is marked as missing rather than being filled with a later forecast.
+
+The default decision cutoff is **09:00 Europe/London on the day before delivery**. This is an assumption for the analysis, not a confirmed operational rule from Elexon or the intended trading team.
+
+The cutoff can be configured through the environment settings or the UI. The app also supports a fixed-lead-time mode, such as 24 hours before each delivery interval, and provides a vintages view for inspecting earlier forecasts.
+
+A later cutoff may produce different accuracy results because more recent forecasts become available. Comparisons should therefore use a clearly stated cutoff.
+
+## Metrics
+
+All generation and error metrics are expressed in MW and calculated only from matched, valid forecast/actual pairs.
+
+The error convention is:
+
+`error = forecast - actual`
+
+A positive error means generation was over-forecast; a negative error means it was under-forecast.
+
+| Metric | Meaning |
+|---|---|
+| MAE | Average absolute forecast error |
+| RMSE | Root mean squared error; larger errors have more influence |
+| Mean bias | Average signed error |
+| nMAE | MAE divided by the mean actual generation for the same matched pairs |
+
+The app also reports the sample size and coverage, calculated as matched intervals divided by the expected number of half-hour intervals.
+
+Results are marked as non-authoritative when synthetic data is used, no valid pairs are available, or coverage falls below the configured 95% threshold.
+
+## Data quality and limitations
+
+The analysis applies the following checks:
+
+- Null, negative, non-numeric, non-finite and implausibly high generation values above 60 GW are excluded and counted. Zero generation is allowed.
+- Unparseable timestamps and intervals that do not align with the expected settlement periods are rejected.
+- Duplicate records are handled during cleaning. Actual duplicates use the latest publication time where available, and conflicting duplicates are flagged.
+- Missing intervals are reported as contiguous ranges.
+- Delivery days follow the Europe/London calendar. The code handles daylight-saving days with 46 or 50 half-hour intervals; January 2026 has 48 intervals per day.
+
+There are also some important limitations:
+
+- Live Elexon endpoints, parameters and response fields still need verification.
+- The default decision cutoff is an assumption.
+- The analysis covers national wind generation only and only January 2026.
+- The app does not use electricity prices, demand or procurement decisions.
+- Timestamps are displayed in UTC.
+- Data is loaded into memory for each running process.
+- Saved snapshots are not refreshed automatically.
+- The app does not require Elexon authentication in its current design.
+
+## API endpoints
+
+The FastAPI backend exposes the following routes:
+
+```text
+GET /api/health
+GET /api/config
+GET /api/summary
+GET /api/series
+GET /api/metrics
+GET /api/quality
+GET /api/actuals
+GET /api/forecasts
+GET /api/vintages?target=...
 ```
-backend/app/
-  config.py    env-driven settings          elexon.py   HTTP client (retry, chunking)
-  cleaning.py  validation, de-duplication   store.py    snapshot / live / synthetic loading
-  vintage.py   cutoff rules, vintage pick   analysis.py matching, metrics, daily, narrative
-  service.py   param validation, one run    main.py     FastAPI routes (+ optional static serving)
-  synthetic.py labelled dev fixtures        cli.py      `fetch` / `info`
-backend/tests/   pytest suite               frontend/src/   React UI + vitest tests
-Dockerfile (single image, deployment)  docker-compose.yml (dev)  render.yaml
+
+Common query parameters include `start`, `end`, `mode`, `cutoff_time`, `lead_days` and `horizon_hours`.
+
+Date filters are limited to January 2026. Invalid parameters return HTTP 422, upstream errors can return 502, and unavailable or unusable datasets can return 503.
+
+FastAPI's interactive API documentation is available at `/docs` when the backend is running.
+
+## Project structure
+
+```text
+backend/
+  app/
+    config.py       # Environment-based settings
+    elexon.py       # HTTP client, retries and request chunking
+    cleaning.py     # Validation and duplicate handling
+    store.py        # Dataset and snapshot loading
+    vintage.py      # Cutoff rules and forecast selection
+    analysis.py     # Matching, metrics and daily summaries
+    service.py      # Analysis service and parameter validation
+    main.py         # FastAPI routes
+    synthetic.py    # Clearly labelled development fixtures
+    cli.py          # Fetch and info commands
+  tests/            # Backend tests
+
+frontend/
+  src/              # React interface and frontend tests
+
+data/
+  snapshots/        # Saved data snapshots
+
+docs/
+  VIDEO_PLAN.md     # Demo video outline
+
+Dockerfile
+docker-compose.yml
+render.yaml
 ```
 
-### API
-`GET /api/health · /api/config · /api/summary · /api/series · /api/metrics · /api/quality · /api/actuals · /api/forecasts · /api/vintages?target=…`
-Common query parameters: `start`, `end` (YYYY-MM-DD, within January 2026), `mode=day_ahead|horizon`, `cutoff_time=HH:MM`, `lead_days=0..7`, `horizon_hours`. Invalid values return 422; upstream failures 502; no usable data 503.
+## Tests and checks
 
-## Data sources and assumptions
+Run the backend tests:
 
-- **Actuals:** Elexon `FUELHH` stream, records with `fuelType = WIND`; fields `startTime`, `generation`. 
-- **Forecasts:** Elexon `WINDFOR` stream; fields `startTime`, `publishTime`, `generation`.
-- Treated as MW per half-hour settlement period; timestamps ISO-8601, normalised to UTC (naive values are assumed UTC and counted). **Unverified – see status table.**
-- Only these two national series are used.
+```bash
+cd backend
+python -m pytest -q
+```
 
-## Forecast vintage and decision cutoff
+Run the frontend tests:
 
-For each delivery interval the app uses the **latest forecast with `publishTime ≤ cutoff`** (inclusive). Forecasts published later are excluded and counted. If none exists, the interval is "missing forecast" – never filled.
+```bash
+cd frontend
+npm test
+```
 
-**Assumed cutoff: 09:00 Europe/London on the day before delivery** (so all intervals of a delivery day share one cutoff). This is an **assumption**: the assignment does not give the operational cutoff and I could not confirm one from documentation. It is configurable (`CUTOFF_TIME`, `CUTOFF_LEAD_DAYS`, or in the UI). A later cutoff can only add newer forecasts, which usually look more accurate; an earlier one the reverse. A second mode, **fixed lead time** (e.g. 24 h before each interval), and the **Vintages** dialog let users inspect earlier forecasts.
+Check Python formatting and lint:
 
-## Metrics (all in MW, matched valid pairs only)
+```bash
+cd backend
+ruff check .
+ruff format --check .
+```
 
-`error = forecast − actual` (positive = over-forecast).
-**MAE** = mean(|error|) · **RMSE** = √mean(error²) · **Mean bias** = mean(error) · **nMAE** = MAE ÷ mean(actual) over the same pairs (undefined if mean actual is 0).
-Sample size and coverage (`matched ÷ expected half-hours`) are shown beside the metrics. Results are flagged **not authoritative** when data are synthetic, there are no matched pairs, or coverage is below 95 % (`MIN_AUTHORITATIVE_COVERAGE`).
+Check the frontend:
 
-## Data-quality handling and limitations
+```bash
+cd frontend
+npm run lint
+npm run build
+```
 
-- Null, negative, non-numeric, NaN/inf or > 60 GW generation values are excluded and counted – never set to zero. Zero is accepted as valid.
-- Misaligned or unparseable timestamps are rejected; duplicates are collapsed (actuals: latest `publishTime` wins) and conflicting duplicates are flagged.
-- Delivery days are London local days; DST days have 46/50 intervals (tested). January has none.
-- Missing intervals are listed as contiguous ranges.
-- Limitations: unverified live schema; assumed cutoff; national level only; one month; no authentication; in-memory cache per process; times shown in UTC; a snapshot is not refreshed automatically.
+The reported backend test suite covers forecast vintage selection, cutoff boundaries, daylight-saving handling, interval matching, duplicates, invalid values, metric calculations, empty datasets, API validation, upstream failures and synthetic fallback behaviour.
 
-## Deployment (prepared, not done)
+The frontend tests cover the non-authoritative banner, error-sign display and control switching. Browser end-to-end tests have not been added.
 
-The root `Dockerfile` builds the UI and serves it with the API from one container (same origin, so no CORS setup). Commit a snapshot in `data/snapshots/` (public Elexon data – check licence terms) so the deployed app does not depend on live calls.
-1. Push to a public GitHub repo with an anonymous name (`git init`, commit, `gh repo create <name> --public --source . --push`).
-2. Render → New → Blueprint → select the repo (uses `render.yaml`), or any Docker host. Health check: `/api/health`.
-3. If hosting the UI separately (e.g. Vercel), set `VITE_API_BASE` at build time and add the UI origin to `CORS_ORIGINS` on the API.
-Public URL: **none yet.**
+These are the results recorded during development; rerun the commands against the current checkout to confirm them.
 
-## AI assistance
-Built with Claude (Anthropic) via Claude Code: it wrote the backend, frontend, tests, Docker and documentation from the brief, ran the tests/lint/build reported above, and drafted the video plan. The author must review the assumptions (especially the cutoff and Elexon parameters) and present the work in their own words.
-#   w i n d - f o r e c a s t - d e s k  
- 
+## Deployment
+
+A `Dockerfile` and `render.yaml` are included, but the application has not been deployed and no public URL is available yet.
+
+The intended deployment process is:
+
+1. Push the project to a GitHub repository.
+2. Create a Render Blueprint from that repository, using `render.yaml`, or deploy the Docker image on another compatible host.
+3. Configure the environment variables and verify the `/api/health` endpoint.
+4. Test the application using a known snapshot before relying on the results.
+
+A saved snapshot can make the deployment less dependent on live Elexon requests. Before committing one to a public repository, check the applicable data-use terms.
+
+If the frontend is hosted separately, configure `VITE_API_BASE` at build time and set the appropriate `CORS_ORIGINS` value on the backend.
+
+## Development notes
+
+The application was developed with assistance from Claude Code, which helped generate the backend, frontend, tests, container configuration and documentation.
+
+The implementation and assumptions still need to be reviewed, particularly the live Elexon integration and the default forecast cutoff. The test results confirm the behaviour covered by the tests; they do not establish that the live data integration is correct.
