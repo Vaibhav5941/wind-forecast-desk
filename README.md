@@ -123,3 +123,5 @@ Public URL: **none yet.**
 
 ## AI assistance
 Built with Claude (Anthropic) via Claude Code: it wrote the backend, frontend, tests, Docker and documentation from the brief, ran the tests/lint/build reported above, and drafted the video plan. The author must review the assumptions (especially the cutoff and Elexon parameters) and present the work in their own words.
+#   w i n d - f o r e c a s t - d e s k  
+ 
